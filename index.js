@@ -26,6 +26,7 @@ const {
 const config = require('./src/config');
 const logger = require('./src/logger');
 const { ReceiptProcessor } = require('./src/processor');
+const { ocrImage } = require('./src/ocr/ocrEngine');
 const { startCloudServer } = require('./src/cloudServer');
 
 // ---- CLI args ----
@@ -129,7 +130,7 @@ async function connect() {
 }
 
 async function main() {
-  processor = new ReceiptProcessor({ getImageBytes });
+  processor = new ReceiptProcessor({ getImageBytes, ocr: ocrImage });
   await connect();
 
   // Cloud mode (Render etc.): PORT is provided by the platform.
