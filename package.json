@@ -1,27 +1,48 @@
 {
-  "name": "tr-receipt-bot",
+  "name": "@gumballxnz/ghost-manual",
   "version": "1.0.0",
-  "description": "WhatsApp bot for detecting duplicate and fraudulent Turkish bank receipts (Ziraat, Akbank, Enpara) via local OCR — no external AI APIs.",
+  "description": "WhatsApp Group Moderation & Manual Airtime/Megas Management Bot built with Baileys",
   "main": "index.js",
-  "type": "commonjs",
-  "scripts": {
-    "start": "node index.js",
-    "start:qr": "node index.js --qr",
-    "pair": "node index.js --pair",
-    "test": "node --test"
+  "bin": {
+    "ghost-manual": "./bin/cli.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=18.0.0"
   },
-  "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
-    "better-sqlite3": "^12.11.1",
-    "dotenv": "^16.4.5",
-    "jimp": "^1.6.1",
-    "pino": "^9.5.0",
-    "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0",
-    "tesseract.js": "^5.1.1"
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "baileys",
+    "group-moderation",
+    "admin-bot",
+    "vodacom",
+    "mozambique"
+  ],
+  "author": "Gumballwotersan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gumballxnz/ghost-manual.git"
   },
-  "license": "MIT"
+  "bugs": {
+    "url": "https://github.com/Gumballxnz/ghost-manual/issues"
+  },
+  "homepage": "https://github.com/Gumballxnz/ghost-manual#readme",
+  "scripts": {
+    "start": "node index.js",
+    "setup": "node setup.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@resvg/resvg-js": "^2.6.2",
+    "@whiskeysockets/baileys": "^6.7.21",
+    "axios": "^1.10.0",
+    "jimp": "0.16.1",
+    "pdfkit": "^0.19.1",
+    "pino": "^8.19.0",
+    "qrcode": "^1.5.4"
+  }
 }

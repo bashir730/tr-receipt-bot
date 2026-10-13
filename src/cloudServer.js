@@ -1,116 +1,72 @@
 'use strict';
-
-// ---------------------------------------------------------------
-// Cloud / container mode helper.
-// On hosts like Render there is no interactive terminal, so the QR
-// code in logs is hard to use. Instead we expose a tiny HTTP server:
-//
-//   GET  /                     health / status (no secret needed)
-//   GET  /pairing?secret=...   get (or generate) the WhatsApp pairing
-//                              code for PAIR_PHONE, to be typed into
-//                              WhatsApp on the phone (Settings ->
-//                              Linked devices -> Link a device ->
-//                              "Link with phone number").
-//
-// The pairing endpoint only works when PAIRING_SECRET is set; it
-// returns 403 otherwise. No other routes exist and the bot still
-// sends nothing to any WhatsApp chat.
-// ---------------------------------------------------------------
+// Cloud (Render) helper: binds $PORT, exposes health, QR page and pairing code.
+// Guards: /qr and /pairing require ?secret= equal to env PAIRING_SECRET.
 
 const http = require('http');
+const fs = require('fs');
 const QRCode = require('qrcode');
-const logger = require('./logger');
 
-function startCloudServer({ port, getSocket, getStatus, getQR }) {
-  let lastPairingCode = null;
-  let lastPairingAt = 0;
-  let pairingBusy = false;
+function startCloudServer(port) {
+  const status = () => ({
+    ok: true,
+    connected: !!(global.sockConnected || global.primaryConnected),
+    registered: !!(global.sock && global.sock.authState && global.sock.authState.creds && global.sock.authState.creds.registered),
+    bot: 'ghost-manual'
+  });
+
+  const checkSecret = (req, url) => {
+    const secret = process.env.PAIRING_SECRET || '';
+    if (!secret) return false;
+    return url.searchParams.get('secret') === secret;
+  };
 
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://localhost');
-    const json = (code, obj) => {
-      res.writeHead(code, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(obj));
-    };
+    const url = new URL(req.url, 'http://x');
+    const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
 
-    if (url.pathname === '/') {
-      return json(200, Object.assign({ ok: true }, getStatus()));
+    if (url.pathname === '/') return json(200, status());
+
+    if (url.pathname === '/qr') {
+      if (!checkSecret(req, url)) {
+        res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end('<meta name="viewport" content="width=device-width"><p>Secret incorrect or PAIRING_SECRET not set. Add ?secret=YOUR_SECRET</p>');
+      }
+      const st = status();
+      if (st.registered) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end('<meta name="viewport" content="width=device-width"><h2>&#10004; WhatsApp connected</h2><pre>' + JSON.stringify(st, null, 2) + '</pre>');
+      }
+      const qr = global.latestQR;
+      if (!qr) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'refresh': '10' });
+        return res.end('<meta name="viewport" content="width=device-width"><p>Waiting for WhatsApp QR... auto-reloads every 10s</p>');
+      }
+      let dataUrl = '';
+      try { dataUrl = await QRCode.toDataURL(qr, { width: 400, margin: 2 }); } catch (e) {}
+      const html = '<!doctype html><html><head><meta charset="utf-8">'
+        + '<meta name="viewport" content="width=device-width">'
+        + '<meta http-equiv="refresh" content="20"><title>ghost-manual</title>'
+        + '<style>body{font-family:sans-serif;text-align:center;background:#111;color:#eee;padding:20px}'
+        + 'img{max-width:400px;width:100%;background:#fff;padding:12px;border-radius:12px}</style></head><body>'
+        + '<h2>WhatsApp QR</h2>'
+        + '<p>WhatsApp &#8594; Settings &#8594; <b>Linked devices</b> &#8594; <b>Link a device</b></p>'
+        + (dataUrl ? '<img src="' + dataUrl + '" alt="QR">' : '<p>QR expired, reloading...</p>')
+        + '<p><small>' + JSON.stringify(st) + '</small></p></body></html>';
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(html);
     }
 
     if (url.pathname === '/pairing') {
-      const secret = process.env.PAIRING_SECRET || '';
-      if (!secret) return json(403, { error: 'pairing disabled (PAIRING_SECRET not set)' });
-      if (url.searchParams.get('secret') !== secret) return json(403, { error: 'bad secret' });
-
-      const st = getStatus();
-      if (st.registered) return json(200, { status: 'already-paired' });
-
-      // Serve a recent code (valid for a short while) without regenerating.
-      if (lastPairingCode && Date.now() - lastPairingAt < 2 * 60 * 1000 && !pairingBusy) {
-        return json(200, { status: 'ok', pairingCode: lastPairingCode });
-      }
-      const phone = (process.env.PAIR_PHONE || '').replace(/[^0-9]/g, '');
-      if (!phone) return json(409, { error: 'PAIR_PHONE not configured' });
-
-      const sock = getSocket();
-      if (!sock || pairingBusy) return json(503, { error: 'whatsapp not ready yet, retry in ~30s' });
-
-      pairingBusy = true;
-      try {
-        const code = await sock.requestPairingCode(phone);
-        lastPairingCode = code;
-        lastPairingAt = Date.now();
-        return json(200, { status: 'ok', pairingCode: code });
-      } catch (err) {
-        return json(500, { error: 'pairing failed: ' + err.message });
-      } finally {
-        pairingBusy = false;
-      }
+      if (!checkSecret(req, url)) return json(403, { error: 'bad secret' });
+      const code = global.lastPairingCode;
+      if (!code) return json(503, { ...status(), error: 'pairing code not generated yet, retry in a few seconds' });
+      return json(200, { ...status(), pairingCode: code, phone: process.env.PAIR_PHONE || '' });
     }
 
-    if (url.pathname === '/qr') {
-      const secret = process.env.PAIRING_SECRET || '';
-      if (!secret) return json(403, { error: 'QR disabled (PAIRING_SECRET not set)' });
-      if (url.searchParams.get('secret') !== secret) {
-        res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end('<meta name="viewport" content="width=device-width"><p>Secret incorrect. Add ?secret=PAIRING_SECRET to the URL.</p>');
-        return;
-      }
-      const st = getStatus();
-      if (st.registered) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end('<meta name="viewport" content="width=device-width"><h2>&#10004; WhatsApp connected</h2><pre>' + JSON.stringify(st, null, 2) + '</pre>');
-        return;
-      }
-      const qr = getQR && getQR();
-      if (!qr) {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'refresh': '10' });
-        res.end('<meta name="viewport" content="width=device-width"><p>Waiting for WhatsApp QR... this page reloads every 10s.</p>');
-        return;
-      }
-      const dataUrl = await QRCode.toDataURL(qr, { width: 400, margin: 2 });
-      const html = '<!doctype html><html><head><meta charset="utf-8">'
-        + '<meta name="viewport" content="width=device-width">'
-        + '<meta http-equiv="refresh" content="20">'
-        + '<title>tr-receipt-bot</title><style>body{font-family:sans-serif;text-align:center;background:#111;color:#eee;padding:20px}'
-        + 'img{max-width:400px;width:100%;background:#fff;padding:12px;border-radius:12px}'
-        + 'p{font-size:18px}code{background:#333;padding:2px 6px;border-radius:6px}</style></head><body>'
-        + '<h2>WhatsApp QR</h2>'
-        + '<p>WhatsApp &#8594; Settings &#8594; <b>Linked devices</b> &#8594; <b>Link a device</b></p>'
-        + '<img src="' + dataUrl + '" alt="QR">'
-        + '<p style="color:#8f8">page auto-refreshes while QR is fresh</p>'
-        + '<p><small>' + JSON.stringify(st) + '</small></p>'
-        + '</body></html>';
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
-      return;
-    }
-
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'not found' }));
+    json(404, { error: 'not found' });
   });
 
-  server.listen(port, () => logger.info({ port }, 'cloud server listening'));
+  server.listen(port, () => console.log('[CLOUD] server listening on port ' + port));
   return server;
 }
 
