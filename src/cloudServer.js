@@ -18,9 +18,10 @@
 // ---------------------------------------------------------------
 
 const http = require('http');
+const QRCode = require('qrcode');
 const logger = require('./logger');
 
-function startCloudServer({ port, getSocket, getStatus }) {
+function startCloudServer({ port, getSocket, getStatus, getQR }) {
   let lastPairingCode = null;
   let lastPairingAt = 0;
   let pairingBusy = false;
@@ -65,6 +66,44 @@ function startCloudServer({ port, getSocket, getStatus }) {
       } finally {
         pairingBusy = false;
       }
+    }
+
+    if (url.pathname === '/qr') {
+      const secret = process.env.PAIRING_SECRET || '';
+      if (!secret) return json(403, { error: 'QR disabled (PAIRING_SECRET not set)' });
+      if (url.searchParams.get('secret') !== secret) {
+        res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end('<meta name="viewport" content="width=device-width"><p>Secret incorrect. Add ?secret=PAIRING_SECRET to the URL.</p>');
+        return;
+      }
+      const st = getStatus();
+      if (st.registered) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end('<meta name="viewport" content="width=device-width"><h2>&#10004; WhatsApp connected</h2><pre>' + JSON.stringify(st, null, 2) + '</pre>');
+        return;
+      }
+      const qr = getQR && getQR();
+      if (!qr) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'refresh': '10' });
+        res.end('<meta name="viewport" content="width=device-width"><p>Waiting for WhatsApp QR... this page reloads every 10s.</p>');
+        return;
+      }
+      const dataUrl = await QRCode.toDataURL(qr, { width: 400, margin: 2 });
+      const html = '<!doctype html><html><head><meta charset="utf-8">'
+        + '<meta name="viewport" content="width=device-width">'
+        + '<meta http-equiv="refresh" content="20">'
+        + '<title>tr-receipt-bot</title><style>body{font-family:sans-serif;text-align:center;background:#111;color:#eee;padding:20px}'
+        + 'img{max-width:400px;width:100%;background:#fff;padding:12px;border-radius:12px}'
+        + 'p{font-size:18px}code{background:#333;padding:2px 6px;border-radius:6px}</style></head><body>'
+        + '<h2>WhatsApp QR</h2>'
+        + '<p>WhatsApp &#8594; Settings &#8594; <b>Linked devices</b> &#8594; <b>Link a device</b></p>'
+        + '<img src="' + dataUrl + '" alt="QR">'
+        + '<p style="color:#8f8">page auto-refreshes while QR is fresh</p>'
+        + '<p><small>' + JSON.stringify(st) + '</small></p>'
+        + '</body></html>';
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
     }
 
     res.writeHead(404, { 'Content-Type': 'application/json' });

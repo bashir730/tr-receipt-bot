@@ -47,6 +47,7 @@ let sock;
 let qrShown = false;
 let waConnected = false;
 let waRegistered = false;
+let latestQR = null;
 
 async function connect() {
   const { state, saveCreds } = await useMultiFileAuthState(config.sessionDir);
@@ -72,6 +73,7 @@ async function connect() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
+      latestQR = qr;
       if (useQr || !pairNumber) {
         qrShown = true;
         console.log('\nBağlanmak için telefonunuzdan bu QR kodunu okutun:\n');
@@ -89,6 +91,7 @@ async function connect() {
 
     if (connection === 'open') {
       qrShown = false;
+      latestQR = null;
       waConnected = true;
       console.log('✔ WhatsApp bağlandı. Gruplara gönderilen banka dekontları dinleniyor...');
       console.log('  Yanıtlar: ✅ yeni fış / ❌ tekrar (başka hiçbir mesaj gönderilmez).');
@@ -139,6 +142,7 @@ async function main() {
     startCloudServer({
       port: Number(port),
       getSocket: () => sock,
+      getQR: () => latestQR,
       getStatus: () => ({
         whatsapp: waConnected ? 'connected' : 'waiting',
         registered: waRegistered,
