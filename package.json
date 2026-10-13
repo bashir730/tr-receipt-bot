@@ -1,0 +1,26 @@
+{
+  "name": "tr-receipt-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp bot for detecting duplicate and fraudulent Turkish bank receipts (Ziraat, Akbank, Enpara) via local OCR — no external AI APIs.",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "start:qr": "node index.js --qr",
+    "pair": "node index.js --pair",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^16.4.5",
+    "jimp": "^1.6.1",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0",
+    "tesseract.js": "^5.1.1"
+  },
+  "license": "MIT"
+}
